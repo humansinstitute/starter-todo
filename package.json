@@ -1,0 +1,19 @@
+{
+  "name": "do-the-other-stuff",
+  "version": "0.1.0",
+  "description": "Minimal Bun + TypeScript + SQLite todo app",
+  "scripts": {
+    "start": "bun run src/server.ts",
+    "dev": "bun --hot run src/server.ts",
+    "reset-db": "rm -f do-the-other-stuff.sqlite"
+  },
+  "dependencies": {
+    "applesauce-core": "4.0.0",
+    "applesauce-relay": "4.0.0",
+    "bun-types": "latest",
+    "nostr-tools": "2.7.2",
+    "rxjs": "7.8.1"
+  },
+  "type": "module",
+  "license": "MIT"
+}
