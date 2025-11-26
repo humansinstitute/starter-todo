@@ -10,6 +10,7 @@ import {
 } from "./db";
 import { nip19 } from "nostr-tools";
 import { verifyEvent } from "nostr-tools/pure";
+import { extname, join } from "path";
 
 const PORT = Number(Bun.env.PORT ?? 3000);
 const SESSION_COOKIE = "nostr_session";
@@ -17,6 +18,18 @@ const LOGIN_EVENT_KIND = 27235;
 const LOGIN_MAX_AGE_SECONDS = 60;
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 const COOKIE_SECURE = Bun.env.NODE_ENV === "production";
+const APP_NAME = "Other Stuff To Do";
+const APP_TAG = "other-stuff-to-do";
+const PUBLIC_DIR = join(import.meta.dir, "../public");
+
+const STATIC_FILES = new Map<string, string>([
+  ["/favicon.ico", "favicon.png"],
+  ["/favicon.png", "favicon.png"],
+  ["/apple-touch-icon.png", "apple-touch-icon.png"],
+  ["/icon-192.png", "icon-192.png"],
+  ["/icon-512.png", "icon-512.png"],
+  ["/manifest.webmanifest", "manifest.webmanifest"],
+]);
 
 type LoginMethod = "ephemeral" | "extension" | "bunker";
 
@@ -49,6 +62,11 @@ const server = Bun.serve({
     const url = new URL(req.url);
     const { pathname } = url;
     const session = getSessionFromRequest(req);
+
+    if (req.method === "GET") {
+      const staticResponse = await serveStatic(pathname);
+      if (staticResponse) return staticResponse;
+    }
 
     if (req.method === "GET" && pathname === "/") {
       return new Response(renderPage({ showArchive: url.searchParams.get("archive") === "1", session }), {
@@ -105,7 +123,30 @@ const server = Bun.serve({
   },
 });
 
-console.log(`Other Stuff... todo ready on http://localhost:${server.port}`);
+console.log(`${APP_NAME} ready on http://localhost:${server.port}`);
+
+async function serveStatic(pathname: string) {
+  const fileName = STATIC_FILES.get(pathname);
+  if (!fileName) return null;
+  const file = Bun.file(join(PUBLIC_DIR, fileName));
+  if (!(await file.exists())) return null;
+  return new Response(file, { headers: { "Content-Type": contentTypeFor(fileName) } });
+}
+
+function contentTypeFor(fileName: string) {
+  const ext = extname(fileName).toLowerCase();
+  switch (ext) {
+    case ".png":
+      return "image/png";
+    case ".ico":
+      return "image/x-icon";
+    case ".webmanifest":
+    case ".json":
+      return "application/manifest+json";
+    default:
+      return "application/octet-stream";
+  }
+}
 
 function redirect(path: string) {
   return new Response(null, { status: 303, headers: { Location: path } });
@@ -130,7 +171,12 @@ function renderPage({ showArchive, session }: { showArchive: boolean; session: S
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Other Stuff... todo</title>
+  <title>${APP_NAME}</title>
+  <meta name="theme-color" content="#111111" />
+  <meta name="application-name" content="${APP_NAME}" />
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <link rel="manifest" href="/manifest.webmanifest" />
   <style>
     :root {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -525,7 +571,7 @@ function renderPage({ showArchive, session }: { showArchive: boolean; session: S
 <body>
   <main class="app-shell">
     <header class="page-header">
-      <h1>Other Stuff... todo</h1>
+      <h1>${APP_NAME}</h1>
       <div class="session-controls" data-session-controls ${session ? "" : "hidden"}>
         <button
           class="avatar-chip"
@@ -784,10 +830,10 @@ function renderPage({ showArchive, session }: { showArchive: boolean; session: S
       kind: LOGIN_KIND,
       created_at: Math.floor(Date.now() / 1000),
       tags: [
-        ["app", "other-stuff"],
+        ["app", "${APP_TAG}"],
         ["method", method],
       ],
-      content: "Authenticate with Other Stuff",
+      content: "Authenticate with Other Stuff To Do",
     });
 
     const loginButtons = document.querySelectorAll("[data-login-method]");
@@ -959,7 +1005,7 @@ function validateLoginEvent(method: LoginMethod, event: LoginRequestBody["event"
   if (Math.abs(now - event.created_at) > LOGIN_MAX_AGE_SECONDS) {
     return { ok: false, message: "Login event expired." };
   }
-  const hasAppTag = event.tags.some((tag) => tag[0] === "app" && tag[1] === "other-stuff");
+  const hasAppTag = event.tags.some((tag) => tag[0] === "app" && tag[1] === APP_TAG);
   if (!hasAppTag) return { ok: false, message: "Missing app tag." };
   const hasMethodTag = event.tags.some((tag) => tag[0] === "method" && tag[1] === method);
   if (!hasMethodTag) return { ok: false, message: "Method mismatch." };
