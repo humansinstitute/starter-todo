@@ -705,6 +705,7 @@ function renderPage({ showArchive, session }: { showArchive: boolean; session: S
         const base = "https://esm.sh/nostr-tools@2.7.2";
         window.__NOSTR_LIBS__ = {
           pure: await import(\`\${base}/pure\`),
+          nip19: await import(\`\${base}/nip19\`),
           nip46: await import(\`\${base}/nip46\`),
         };
       }
@@ -973,8 +974,8 @@ function renderPage({ showArchive, session }: { showArchive: boolean; session: S
         return;
       }
       try {
-        const { pure } = await loadNostrLibs();
-        const nsec = pure.nip19.nsecEncode(stored);
+        const { nip19 } = await loadNostrLibs();
+        const nsec = nip19.nsecEncode(stored);
         await navigator.clipboard.writeText(nsec);
         alert("Secret key copied to clipboard!\\n\\nKeep this safe - anyone with this key can access your account.");
       } catch (err) {
