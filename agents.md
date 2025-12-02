@@ -15,3 +15,4 @@
 - Make a note of current commit before starting and after a change has completed
 - For schema and ownership details, consult `docs/data_model.md` before changing queries or migrations.
 - For AI agent interactions (fetching tasks, posting summaries), follow `docs/agent_api_spec.md` for endpoints, payloads, and example curls.
+- For UI changes (structure, refresh flow, styling hooks), see `docs/ui.md` to quickly find component markup, state update patterns, and styling entry points.
