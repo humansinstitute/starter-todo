@@ -547,6 +547,60 @@ function renderPage({ showArchive, session }: { showArchive: boolean; session: S
       color: #b91c1c;
       font-size: 0.9rem;
     }
+    .qr-modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.7);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      backdrop-filter: blur(4px);
+    }
+    .qr-modal-overlay[hidden] {
+      display: none;
+    }
+    .qr-modal {
+      background: #fff;
+      border-radius: 16px;
+      padding: 2rem;
+      max-width: 340px;
+      width: 90%;
+      text-align: center;
+      position: relative;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+    }
+    .qr-modal-close {
+      position: absolute;
+      top: 0.75rem;
+      right: 0.75rem;
+      background: transparent;
+      border: none;
+      font-size: 1.5rem;
+      cursor: pointer;
+      color: #666;
+      padding: 0.25rem;
+      line-height: 1;
+    }
+    .qr-modal-close:hover {
+      color: #111;
+    }
+    .qr-modal h2 {
+      margin: 0 0 0.5rem;
+      font-size: 1.25rem;
+    }
+    .qr-modal p {
+      margin: 0 0 1.25rem;
+      color: #555;
+      font-size: 0.9rem;
+    }
+    .qr-canvas-container {
+      display: flex;
+      justify-content: center;
+    }
+    .qr-canvas-container canvas {
+      border-radius: 8px;
+    }
     .auth-status {
       display: flex;
       justify-content: space-between;
@@ -649,6 +703,7 @@ function renderPage({ showArchive, session }: { showArchive: boolean; session: S
         </button>
         <div class="avatar-menu" data-avatar-menu hidden>
           <button type="button" data-export-secret ${session?.method === "ephemeral" ? "" : "hidden"}>Export Secret</button>
+          <button type="button" data-show-login-qr ${session?.method === "ephemeral" ? "" : "hidden"}>Show Login QR</button>
           <button type="button" data-copy-id ${session ? "" : "hidden"}>Copy ID</button>
           <button type="button" data-logout>Log out</button>
         </div>
@@ -713,6 +768,14 @@ function renderPage({ showArchive, session }: { showArchive: boolean; session: S
         </article>
       </div>
     </section>
+    <div class="qr-modal-overlay" data-qr-modal hidden>
+      <div class="qr-modal">
+        <button class="qr-modal-close" type="button" data-qr-close aria-label="Close">&times;</button>
+        <h2>Login QR Code</h2>
+        <p>Scan this code with your mobile device to log in</p>
+        <div class="qr-canvas-container" data-qr-container></div>
+      </div>
+    </div>
   </main>
   <script>
     window.__NOSTR_SESSION__ = ${JSON.stringify(session ?? null)};
@@ -750,6 +813,10 @@ function renderPage({ showArchive, session }: { showArchive: boolean; session: S
     const summaryWeekText = document.querySelector("[data-summary-week-text]");
     const summarySuggestions = document.querySelector("[data-summary-suggestions]");
     const summarySuggestionsText = document.querySelector("[data-summary-suggestions-text]");
+    const qrModal = document.querySelector("[data-qr-modal]");
+    const qrCloseBtn = document.querySelector("[data-qr-close]");
+    const qrContainer = document.querySelector("[data-qr-container]");
+    const showLoginQrBtn = document.querySelector("[data-show-login-qr]");
 
     const updatePanels = () => {
       if (state.session) {
@@ -889,6 +956,14 @@ function renderPage({ showArchive, session }: { showArchive: boolean; session: S
       return window.__APPLESAUCE_LIBS__;
     };
 
+    const loadQRCodeLib = async () => {
+      if (!window.__QRCODE_LIB__) {
+        const mod = await import("https://esm.sh/qrcode@1.5.3");
+        window.__QRCODE_LIB__ = mod.default || mod;
+      }
+      return window.__QRCODE_LIB__;
+    };
+
     let profilePool;
     let avatarMenuWatcherActive = false;
     let avatarRequestId = 0;
@@ -986,6 +1061,84 @@ function renderPage({ showArchive, session }: { showArchive: boolean; session: S
     });
 
     avatarMenu?.addEventListener("click", (event) => event.stopPropagation());
+
+    // QR Modal functions
+    const openQrModal = async () => {
+      if (!qrModal || !qrContainer) return;
+      if (state.session?.method !== "ephemeral") {
+        alert("Login QR is only available for ephemeral accounts.");
+        return;
+      }
+      const stored = localStorage.getItem("nostr_ephemeral_secret");
+      if (!stored) {
+        alert("No secret key found.");
+        return;
+      }
+      try {
+        const { nip19 } = await loadNostrLibs();
+        const QRCode = await loadQRCodeLib();
+        const secret = hexToBytes(stored);
+        const nsec = nip19.nsecEncode(secret);
+        const loginUrl = \`\${window.location.origin}/#code=\${nsec}\`;
+        qrContainer.innerHTML = "";
+        const canvas = document.createElement("canvas");
+        await QRCode.toCanvas(canvas, loginUrl, { width: 256, margin: 2 });
+        qrContainer.appendChild(canvas);
+        qrModal.removeAttribute("hidden");
+        document.addEventListener("keydown", handleQrEscape);
+      } catch (err) {
+        console.error("Failed to generate QR code", err);
+        alert("Failed to generate QR code.");
+      }
+    };
+
+    const closeQrModal = () => {
+      qrModal?.setAttribute("hidden", "hidden");
+      document.removeEventListener("keydown", handleQrEscape);
+    };
+
+    const handleQrEscape = (event) => {
+      if (event.key === "Escape") closeQrModal();
+    };
+
+    const handleQrOverlayClick = (event) => {
+      if (event.target === qrModal) closeQrModal();
+    };
+
+    qrCloseBtn?.addEventListener("click", closeQrModal);
+    qrModal?.addEventListener("click", handleQrOverlayClick);
+
+    showLoginQrBtn?.addEventListener("click", () => {
+      closeAvatarMenu();
+      openQrModal();
+    });
+
+    // URL fragment login detection
+    const checkFragmentLogin = async () => {
+      const hash = window.location.hash;
+      if (!hash.startsWith("#code=")) return;
+      const nsec = hash.slice(6);
+      if (!nsec || !nsec.startsWith("nsec1")) {
+        console.error("Invalid nsec in URL fragment");
+        history.replaceState(null, "", window.location.pathname + window.location.search);
+        return;
+      }
+      // Clear URL immediately for security
+      history.replaceState(null, "", window.location.pathname + window.location.search);
+      try {
+        // Decode nsec and store in localStorage for auto-login persistence
+        const { nip19 } = await loadNostrLibs();
+        const secretBytes = decodeNsec(nip19, nsec);
+        const secretHex = bytesToHex(secretBytes);
+        localStorage.setItem("nostr_ephemeral_secret", secretHex);
+        // Now login as ephemeral (so auto-login works on refresh)
+        const signedEvent = await signLoginEvent("ephemeral");
+        await completeLogin("ephemeral", signedEvent);
+      } catch (err) {
+        console.error("Fragment login failed", err);
+        showError(err?.message || "Login failed.");
+      }
+    };
 
     const hexToBytes = (hex) => {
       if (!hex) return new Uint8Array();
@@ -1233,7 +1386,12 @@ function renderPage({ showArchive, session }: { showArchive: boolean; session: S
     if (state.session) {
       void fetchSummaries();
     }
-    void maybeAutoLogin();
+    // Check for fragment login first (takes precedence over auto-login)
+    void checkFragmentLogin().then(() => {
+      if (!state.session) {
+        void maybeAutoLogin();
+      }
+    });
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible" && !state.session) {
         void maybeAutoLogin();
