@@ -11,20 +11,42 @@ type RenderArgs = {
   todos?: Todo[];
 };
 
+type PageState = {
+  archiveHref: string;
+  archiveLabel: string;
+  remainingText: string;
+  tagFilterBar: string;
+  activeTodos: Todo[];
+  doneTodos: Todo[];
+  emptyActiveMessage: string;
+  emptyArchiveMessage: string;
+  showArchive: boolean;
+};
+
 export function renderHomePage({ showArchive, session, filterTags = [], todos = [] }: RenderArgs) {
   const filteredTodos = filterTodos(todos, filterTags);
-  const activeTodos = filteredTodos.filter((t) => t.state !== "done");
-  const doneTodos = filteredTodos.filter((t) => t.state === "done");
-  const remaining = session ? activeTodos.length : 0;
-  const archiveHref = showArchive ? "/" : "/?archive=1";
-  const archiveLabel = showArchive ? "Hide archive" : `Archive (${doneTodos.length})`;
-  const tagFilterBar = session ? renderTagFilterBar(todos, filterTags, showArchive) : "";
-  const emptyActiveMessage = session ? "No active work. Add something new!" : "Sign in to view your todos.";
-  const emptyArchiveMessage = session ? "Nothing archived yet." : "Sign in to view your archive.";
+  const pageState = buildPageState(filteredTodos, filterTags, showArchive, session);
 
   return `<!doctype html>
 <html lang="en">
-<head>
+${renderHead()}
+<body>
+  <main class="app-shell">
+    ${renderHeader(session)}
+    ${renderAuth(session)}
+    ${renderHero(session)}
+    ${renderWork(pageState)}
+    ${renderSummaries()}
+    ${renderQrModal()}
+  </main>
+  ${renderSessionSeed(session)}
+  <script type="module" src="/app.js"></script>
+</body>
+</html>`;
+}
+
+function renderHead() {
+  return `<head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>${APP_NAME}</title>
@@ -34,108 +56,137 @@ export function renderHomePage({ showArchive, session, filterTags = [], todos = 
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="stylesheet" href="/app.css" />
-</head>
-<body>
-  <main class="app-shell">
-    <header class="page-header">
-      <h1>${APP_NAME}</h1>
-      <div class="session-controls" data-session-controls ${session ? "" : "hidden"}>
-        <button
-          class="avatar-chip"
-          type="button"
-          data-avatar
-          ${session ? "" : "hidden"}
-          title="Account menu"
-        >
-          <span class="avatar-fallback" data-avatar-fallback>
-            ${session ? formatAvatarFallback(session.npub) : "•••"}
-          </span>
-          <img data-avatar-img alt="Profile photo" loading="lazy" ${session ? "" : "hidden"} />
-        </button>
-        <div class="avatar-menu" data-avatar-menu hidden>
-          <button type="button" data-export-secret ${session?.method === "ephemeral" ? "" : "hidden"}>Export Secret</button>
-          <button type="button" data-show-login-qr ${session?.method === "ephemeral" ? "" : "hidden"}>Show Login QR</button>
-          <button type="button" data-copy-id ${session ? "" : "hidden"}>Copy ID</button>
-          <button type="button" data-logout>Log out</button>
-        </div>
+</head>`;
+}
+
+function renderHeader(session: Session | null) {
+  return `<header class="page-header">
+    <h1>${APP_NAME}</h1>
+    <div class="session-controls" data-session-controls ${session ? "" : "hidden"}>
+      <button class="avatar-chip" type="button" data-avatar ${session ? "" : "hidden"} title="Account menu">
+        <span class="avatar-fallback" data-avatar-fallback>${session ? formatAvatarFallback(session.npub) : "•••"}</span>
+        <img data-avatar-img alt="Profile photo" loading="lazy" ${session ? "" : "hidden"} />
+      </button>
+      <div class="avatar-menu" data-avatar-menu hidden>
+        <button type="button" data-export-secret ${session?.method === "ephemeral" ? "" : "hidden"}>Export Secret</button>
+        <button type="button" data-show-login-qr ${session?.method === "ephemeral" ? "" : "hidden"}>Show Login QR</button>
+        <button type="button" data-copy-id ${session ? "" : "hidden"}>Copy ID</button>
+        <button type="button" data-logout>Log out</button>
       </div>
-    </header>
-    <section class="auth-panel" data-login-panel ${session ? "hidden" : ""}>
-      <h2>Sign in with Nostr to get started</h2>
-      <p class="auth-description">Start with a quick Ephemeral ID or bring your own signer.</p>
-      <div class="auth-actions">
-        <button class="auth-option" type="button" data-login-method="ephemeral">Sign Up</button>
-      </div>
-      <details class="auth-advanced">
-        <summary>Advanced options</summary>
-        <p>Use a browser extension or connect to a remote bunker.</p>
-        <button class="auth-option" type="button" data-login-method="extension">Browser extension</button>
-        <form data-bunker-form>
-          <input name="bunker" placeholder="nostrconnect://… or name@example.com" autocomplete="off" />
-          <button class="bunker-submit" type="submit">Connect bunker</button>
-        </form>
-        <form data-secret-form>
-          <input name="secret" placeholder="nsec1…" autocomplete="off" />
-          <button class="bunker-submit" type="submit">Sign in with secret</button>
-        </form>
-      </details>
-      <p class="auth-error" data-login-error hidden></p>
-    </section>
-    <section class="hero-entry">
-      <form class="todo-form" method="post" action="/todos">
-        <label for="title" class="sr-only">Add a task</label>
-        <div class="hero-input-wrapper">
-          <input class="hero-input" data-hero-input id="title" name="title" placeholder="${session ? "Add something else…" : "Add a task"}" autocomplete="off" autofocus required ${session ? "" : "disabled"} />
-        </div>
-        <p class="hero-hint" data-hero-hint hidden>Sign in above to add tasks.</p>
+    </div>
+  </header>`;
+}
+
+function renderAuth(session: Session | null) {
+  return `<section class="auth-panel" data-login-panel ${session ? "hidden" : ""}>
+    <h2>Sign in with Nostr to get started</h2>
+    <p class="auth-description">Start with a quick Ephemeral ID or bring your own signer.</p>
+    <div class="auth-actions">
+      <button class="auth-option" type="button" data-login-method="ephemeral">Sign Up</button>
+    </div>
+    <details class="auth-advanced">
+      <summary>Advanced options</summary>
+      <p>Use a browser extension or connect to a remote bunker.</p>
+      <button class="auth-option" type="button" data-login-method="extension">Browser extension</button>
+      <form data-bunker-form>
+        <input name="bunker" placeholder="nostrconnect://… or name@example.com" autocomplete="off" />
+        <button class="bunker-submit" type="submit">Connect bunker</button>
       </form>
-    </section>
+      <form data-secret-form>
+        <input name="secret" placeholder="nsec1…" autocomplete="off" />
+        <button class="bunker-submit" type="submit">Sign in with secret</button>
+      </form>
+    </details>
+    <p class="auth-error" data-login-error hidden></p>
+  </section>`;
+}
+
+function renderHero(session: Session | null) {
+  return `<section class="hero-entry">
+    <form class="todo-form" method="post" action="/todos">
+      <label for="title" class="sr-only">Add a task</label>
+      <div class="hero-input-wrapper">
+        <input class="hero-input" data-hero-input id="title" name="title" placeholder="${session ? "Add something else…" : "Add a task"}" autocomplete="off" autofocus required ${session ? "" : "disabled"} />
+      </div>
+      <p class="hero-hint" data-hero-hint hidden>Sign in above to add tasks.</p>
+    </form>
+  </section>`;
+}
+
+function renderWork(state: PageState) {
+  return `<section class="work">
     <div class="work-header">
       <h2>Work</h2>
-      <a class="archive-toggle" href="${archiveHref}">${archiveLabel}</a>
+      <a class="archive-toggle" href="${state.archiveHref}">${state.archiveLabel}</a>
     </div>
-    <p class="remaining-summary" ${session ? "" : "hidden"}>${
-      session ? (remaining === 0 ? "All clear." : `${remaining} left to go.`) : ""
-    }</p>
-    ${tagFilterBar}
-    ${renderTodoList(activeTodos, emptyActiveMessage)}
-    ${showArchive ? renderArchiveSection(doneTodos, emptyArchiveMessage) : ""}
-    <section class="summary-panel" data-summary-panel hidden>
-      <div class="section-heading">
-        <h2>Summaries</h2>
-        <span class="summary-meta" data-summary-updated></span>
-      </div>
-      <div class="summary-grid">
-        <article class="summary-card" data-summary-day hidden>
-          <h3>Today</h3>
-          <p class="summary-text" data-summary-day-text></p>
-        </article>
-        <article class="summary-card" data-summary-week hidden>
-          <h3>This Week</h3>
-          <p class="summary-text" data-summary-week-text></p>
-        </article>
-        <article class="summary-card summary-suggestions" data-summary-suggestions hidden>
-          <h3>Suggestions</h3>
-          <p class="summary-text" data-summary-suggestions-text></p>
-        </article>
-      </div>
-    </section>
-    <div class="qr-modal-overlay" data-qr-modal hidden>
-      <div class="qr-modal">
-        <button class="qr-modal-close" type="button" data-qr-close aria-label="Close">&times;</button>
-        <h2>Login QR Code</h2>
-        <p>Scan this code with your mobile device to log in</p>
-        <div class="qr-canvas-container" data-qr-container></div>
-      </div>
-    </div>
-  </main>
-  <script>
-    window.__NOSTR_SESSION__ = ${JSON.stringify(session ?? null)};
-  </script>
-  <script type="module" src="/app.js"></script>
+    <p class="remaining-summary">${state.remainingText}</p>
+    ${state.tagFilterBar}
+    ${renderTodoList(state.activeTodos, state.emptyActiveMessage)}
+    ${state.showArchive ? renderArchiveSection(state.doneTodos, state.emptyArchiveMessage) : ""}
+  </section>`;
+}
 
-</body>
-</html>`;
+function renderSummaries() {
+  return `<section class="summary-panel" data-summary-panel hidden>
+    <div class="section-heading">
+      <h2>Summaries</h2>
+      <span class="summary-meta" data-summary-updated></span>
+    </div>
+    <div class="summary-grid">
+      <article class="summary-card" data-summary-day hidden>
+        <h3>Today</h3>
+        <p class="summary-text" data-summary-day-text></p>
+      </article>
+      <article class="summary-card" data-summary-week hidden>
+        <h3>This Week</h3>
+        <p class="summary-text" data-summary-week-text></p>
+      </article>
+      <article class="summary-card summary-suggestions" data-summary-suggestions hidden>
+        <h3>Suggestions</h3>
+        <p class="summary-text" data-summary-suggestions-text></p>
+      </article>
+    </div>
+  </section>`;
+}
+
+function renderQrModal() {
+  return `<div class="qr-modal-overlay" data-qr-modal hidden>
+    <div class="qr-modal">
+      <button class="qr-modal-close" type="button" data-qr-close aria-label="Close">&times;</button>
+      <h2>Login QR Code</h2>
+      <p>Scan this code with your mobile device to log in</p>
+      <div class="qr-canvas-container" data-qr-container></div>
+    </div>
+  </div>`;
+}
+
+function renderSessionSeed(session: Session | null) {
+  return `<script>
+    window.__NOSTR_SESSION__ = ${JSON.stringify(session ?? null)};
+  </script>`;
+}
+
+function buildPageState(todos: Todo[], filterTags: string[], showArchive: boolean, session: Session | null): PageState {
+  const activeTodos = todos.filter((t) => t.state !== "done");
+  const doneTodos = todos.filter((t) => t.state === "done");
+  const archiveHref = showArchive ? "/" : "/?archive=1";
+  const archiveLabel = showArchive ? "Hide archive" : `Archive (${doneTodos.length})`;
+  const tagFilterBar = session ? renderTagFilterBar(todos, filterTags, showArchive) : "";
+  const emptyActiveMessage = session ? "No active work. Add something new!" : "Sign in to view your todos.";
+  const emptyArchiveMessage = session ? "Nothing archived yet." : "Sign in to view your archive.";
+  const remainingText = session ? (activeTodos.length === 0 ? "All clear." : `${activeTodos.length} left to go.`) : "";
+
+  return {
+    archiveHref,
+    archiveLabel,
+    remainingText,
+    tagFilterBar,
+    activeTodos,
+    doneTodos,
+    emptyActiveMessage,
+    emptyArchiveMessage,
+    showArchive,
+  };
 }
 
 function filterTodos(allTodos: Todo[], filterTags: string[]) {
