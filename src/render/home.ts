@@ -38,6 +38,8 @@ ${renderHead()}
     ${renderWork(pageState)}
     ${renderSummaries()}
     ${renderQrModal()}
+    ${renderPinModal()}
+    ${renderProfileModal()}
   </main>
   ${renderSessionSeed(session)}
   <script type="module" src="/app.js"></script>
@@ -68,6 +70,7 @@ function renderHeader(session: Session | null) {
         <img data-avatar-img alt="Profile photo" loading="lazy" ${session ? "" : "hidden"} />
       </button>
       <div class="avatar-menu" data-avatar-menu hidden>
+        <button type="button" data-view-profile ${session ? "" : "hidden"}>View Profile</button>
         <button type="button" data-export-secret ${session?.method === "ephemeral" ? "" : "hidden"}>Export Secret</button>
         <button type="button" data-show-login-qr ${session?.method === "ephemeral" ? "" : "hidden"}>Show Login QR</button>
         <button type="button" data-copy-id ${session ? "" : "hidden"}>Copy ID</button>
@@ -93,7 +96,7 @@ function renderAuth(session: Session | null) {
         <button class="bunker-submit" type="submit">Connect bunker</button>
       </form>
       <form data-secret-form>
-        <input name="secret" placeholder="nsec1…" autocomplete="off" />
+        <input type="password" name="secret" placeholder="nsec1…" autocomplete="off" />
         <button class="bunker-submit" type="submit">Sign in with secret</button>
       </form>
     </details>
@@ -156,6 +159,81 @@ function renderQrModal() {
       <h2>Login QR Code</h2>
       <p>Scan this code with your mobile device to log in</p>
       <div class="qr-canvas-container" data-qr-container></div>
+    </div>
+  </div>`;
+}
+
+function renderPinModal() {
+  return `<div class="pin-modal-overlay" data-pin-modal hidden>
+    <div class="pin-modal">
+      <button class="pin-modal-close" type="button" data-pin-close aria-label="Close">&times;</button>
+      <h2 data-pin-title>Enter PIN</h2>
+      <p data-pin-description>Create a PIN to secure your secret key</p>
+      <div class="pin-display" data-pin-display>
+        <span class="pin-dot" data-pin-dot></span>
+        <span class="pin-dot" data-pin-dot></span>
+        <span class="pin-dot" data-pin-dot></span>
+        <span class="pin-dot" data-pin-dot></span>
+        <span class="pin-dot" data-pin-dot></span>
+        <span class="pin-dot" data-pin-dot></span>
+      </div>
+      <p class="pin-error" data-pin-error hidden></p>
+      <div class="pin-keypad" data-pin-keypad>
+        <button type="button" data-pin-key="1">1</button>
+        <button type="button" data-pin-key="2">2</button>
+        <button type="button" data-pin-key="3">3</button>
+        <button type="button" data-pin-key="4">4</button>
+        <button type="button" data-pin-key="5">5</button>
+        <button type="button" data-pin-key="6">6</button>
+        <button type="button" data-pin-key="7">7</button>
+        <button type="button" data-pin-key="8">8</button>
+        <button type="button" data-pin-key="9">9</button>
+        <button type="button" data-pin-key="clear" class="pin-key-action">Clear</button>
+        <button type="button" data-pin-key="0">0</button>
+        <button type="button" data-pin-key="back" class="pin-key-action">&larr;</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderProfileModal() {
+  return `<div class="profile-modal-overlay" data-profile-modal hidden>
+    <div class="profile-modal">
+      <button class="profile-modal-close" type="button" data-profile-close aria-label="Close">&times;</button>
+
+      <div class="profile-view" data-profile-view>
+        <div class="profile-header">
+          <div class="profile-avatar" data-profile-avatar></div>
+          <div class="profile-info">
+            <h2 class="profile-name" data-profile-name>Loading...</h2>
+            <p class="profile-nip05" data-profile-nip05></p>
+          </div>
+        </div>
+        <p class="profile-about" data-profile-about></p>
+        <p class="profile-npub" data-profile-npub></p>
+        <button type="button" class="profile-edit-btn" data-profile-edit-btn>Edit Profile</button>
+      </div>
+
+      <form class="profile-edit-form" data-profile-edit-form hidden>
+        <h2>Edit Profile</h2>
+        <label>
+          Display Name
+          <input type="text" name="displayName" data-profile-edit-name placeholder="Your name" />
+        </label>
+        <label>
+          About
+          <textarea name="about" data-profile-edit-about rows="3" placeholder="Tell us about yourself"></textarea>
+        </label>
+        <label>
+          Profile Picture URL
+          <input type="url" name="picture" data-profile-edit-picture placeholder="https://..." />
+        </label>
+        <p class="profile-edit-status" data-profile-edit-status hidden></p>
+        <div class="profile-edit-actions">
+          <button type="button" data-profile-edit-cancel>Cancel</button>
+          <button type="submit">Save Profile</button>
+        </div>
+      </form>
     </div>
   </div>`;
 }

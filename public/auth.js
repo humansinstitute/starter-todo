@@ -17,10 +17,27 @@ import {
 import { fetchSummaries } from "./summary.js";
 import { clearError, showError } from "./ui.js";
 import { setSession, setSummaries, state } from "./state.js";
+import {
+  initPinModal,
+  promptPinForNewSecret,
+  promptPinForDecrypt,
+  promptPinForNewBunker,
+  promptPinForBunkerDecrypt,
+  getMemorySecret,
+  setMemorySecret,
+  getMemoryBunkerSigner,
+  setMemoryBunkerSigner,
+  getMemoryBunkerUri,
+  setMemoryBunkerUri,
+  clearAllStoredCredentials,
+  hasEncryptedSecret,
+  hasEncryptedBunker,
+} from "./pin.js";
 
 let autoLoginAttempted = false;
 
 export const initAuth = () => {
+  initPinModal();
   wireLoginButtons();
   wireForms();
   wireMenuButtons();
@@ -75,11 +92,12 @@ const wireForms = () => {
       showError("Enter a bunker nostrconnect URI or NIP-05 handle.");
       return;
     }
+    const bunkerUri = input.value.trim();
     bunkerForm.classList.add("is-busy");
     clearError();
     try {
-      const signedEvent = await signLoginEvent("bunker", input.value.trim());
-      await completeLogin("bunker", signedEvent);
+      const signedEvent = await signLoginEvent("bunker", bunkerUri);
+      await completeLogin("bunker", signedEvent, bunkerUri);
       input.value = "";
     } catch (err) {
       console.error(err);
@@ -139,6 +157,7 @@ const wireMenuButtons = () => {
     setSummaries({ day: null, week: null });
     setSession(null);
     clearAutoLogin();
+    clearAllStoredCredentials();
   });
 };
 
@@ -216,20 +235,54 @@ const checkFragmentLogin = async () => {
 const maybeAutoLogin = async () => {
   if (autoLoginAttempted || state.session) return;
   autoLoginAttempted = true;
+
   const method = localStorage.getItem(AUTO_LOGIN_METHOD_KEY);
-  const hasSecret = !!localStorage.getItem(EPHEMERAL_SECRET_KEY);
-  if (method !== "ephemeral" || !hasSecret) {
-    autoLoginAttempted = false;
-    return;
+
+  // Check for ephemeral login
+  if (method === "ephemeral") {
+    const hasSecret = !!localStorage.getItem(EPHEMERAL_SECRET_KEY);
+    if (!hasSecret) {
+      autoLoginAttempted = false;
+      return;
+    }
+    try {
+      const signedEvent = await signLoginEvent("ephemeral");
+      await completeLogin("ephemeral", signedEvent);
+      return;
+    } catch (err) {
+      console.error("Auto login failed", err);
+      clearAutoLogin();
+      autoLoginAttempted = false;
+    }
   }
-  try {
-    const signedEvent = await signLoginEvent("ephemeral");
-    await completeLogin("ephemeral", signedEvent);
-  } catch (err) {
-    console.error("Auto login failed", err);
-    clearAutoLogin();
-    autoLoginAttempted = false;
+
+  // Check for encrypted secret login
+  if (method === "secret" && hasEncryptedSecret()) {
+    try {
+      const signedEvent = await signLoginEvent("secret");
+      await completeLogin("secret", signedEvent);
+      return;
+    } catch (err) {
+      console.error("Auto login with encrypted secret failed", err);
+      // Don't clear auto-login on PIN cancellation - user can try again
+      autoLoginAttempted = false;
+    }
   }
+
+  // Check for encrypted bunker login
+  if (method === "bunker" && hasEncryptedBunker()) {
+    try {
+      const signedEvent = await signLoginEvent("bunker");
+      await completeLogin("bunker", signedEvent);
+      return;
+    } catch (err) {
+      console.error("Auto login with encrypted bunker failed", err);
+      // Don't clear auto-login on PIN cancellation - user can try again
+      autoLoginAttempted = false;
+    }
+  }
+
+  autoLoginAttempted = false;
 };
 
 const signLoginEvent = async (method, supplemental) => {
@@ -255,28 +308,85 @@ const signLoginEvent = async (method, supplemental) => {
 
   if (method === "bunker") {
     const { pure, nip46 } = await loadNostrLibs();
-    const pointer = await nip46.parseBunkerInput(supplemental || "");
-    if (!pointer) throw new Error("Unable to parse bunker details.");
-    const clientSecret = pure.generateSecretKey();
-    const signer = new nip46.BunkerSigner(clientSecret, pointer);
-    await signer.connect();
-    try {
+
+    // Check if we have an active bunker signer in memory
+    let signer = getMemoryBunkerSigner();
+
+    if (signer) {
+      // Use existing signer
       return await signer.signEvent(buildUnsignedEvent(method));
-    } finally {
-      await signer.close();
     }
+
+    // Determine bunker URI to use
+    let bunkerUri = supplemental;
+
+    if (!bunkerUri) {
+      // Check if we have a stored bunker URI in memory
+      bunkerUri = getMemoryBunkerUri();
+    }
+
+    if (!bunkerUri && hasEncryptedBunker()) {
+      // Prompt for PIN to decrypt stored bunker URI
+      bunkerUri = await promptPinForBunkerDecrypt();
+    }
+
+    if (!bunkerUri) {
+      throw new Error("No bunker connection available.");
+    }
+
+    // Parse and connect to bunker
+    const pointer = await nip46.parseBunkerInput(bunkerUri);
+    if (!pointer) throw new Error("Unable to parse bunker details.");
+
+    const clientSecret = pure.generateSecretKey();
+    signer = new nip46.BunkerSigner(clientSecret, pointer);
+    await signer.connect();
+
+    // Store the signer in memory for future use
+    setMemoryBunkerSigner(signer);
+    setMemoryBunkerUri(bunkerUri);
+
+    // If this is a new bunker connection (supplemental was provided), prompt for PIN to store
+    if (supplemental) {
+      // Don't await this - we'll store after successful login
+      // The PIN prompt will happen after the login event is signed
+    }
+
+    return await signer.signEvent(buildUnsignedEvent(method));
   }
 
   if (method === "secret") {
     const { pure, nip19 } = await loadNostrLibs();
-    const secret = decodeNsec(nip19, supplemental || "");
+
+    // Check if we have a memory secret (already decrypted)
+    let secret = getMemorySecret();
+
+    if (!secret && supplemental) {
+      // New secret being entered - decode and prompt for PIN
+      const decodedSecret = decodeNsec(nip19, supplemental);
+      const secretHex = bytesToHex(decodedSecret);
+
+      // Prompt user to create a PIN and encrypt the secret
+      secret = await promptPinForNewSecret(secretHex);
+    } else if (!secret && hasEncryptedSecret()) {
+      // We have an encrypted secret - prompt for PIN to decrypt
+      secret = await promptPinForDecrypt();
+    }
+
+    if (!secret) {
+      throw new Error("No secret key available.");
+    }
+
     return pure.finalizeEvent(buildUnsignedEvent(method), secret);
   }
 
   throw new Error("Unsupported login method.");
 };
 
-const completeLogin = async (method, event) => {
+// Track if we need to prompt for bunker PIN after login
+let pendingBunkerPinPrompt = null;
+
+const completeLogin = async (method, event, bunkerUriForStorage = null) => {
   const response = await fetch("/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -292,12 +402,36 @@ const completeLogin = async (method, event) => {
   }
   const session = await response.json();
   setSession(session);
+
   if (method === "ephemeral") {
     localStorage.setItem(AUTO_LOGIN_METHOD_KEY, "ephemeral");
     localStorage.setItem(AUTO_LOGIN_PUBKEY_KEY, session.pubkey);
+    // Store ephemeral secret in memory for signing
+    const stored = localStorage.getItem(EPHEMERAL_SECRET_KEY);
+    if (stored) setMemorySecret(hexToBytes(stored));
+  } else if (method === "secret") {
+    // Secret login with encrypted storage
+    localStorage.setItem(AUTO_LOGIN_METHOD_KEY, "secret");
+    localStorage.setItem(AUTO_LOGIN_PUBKEY_KEY, session.pubkey);
+  } else if (method === "bunker") {
+    // Bunker login with encrypted storage
+    localStorage.setItem(AUTO_LOGIN_METHOD_KEY, "bunker");
+    localStorage.setItem(AUTO_LOGIN_PUBKEY_KEY, session.pubkey);
+
+    // If this is a new bunker connection, prompt for PIN to store it
+    const bunkerUri = bunkerUriForStorage || getMemoryBunkerUri();
+    if (bunkerUri && !hasEncryptedBunker()) {
+      try {
+        await promptPinForNewBunker(bunkerUri);
+      } catch (err) {
+        // User cancelled PIN - that's okay, they just won't have auto-login
+        console.log("Bunker PIN storage cancelled:", err.message);
+      }
+    }
   } else {
     clearAutoLogin();
   }
+
   await fetchSummaries();
   window.location.reload();
 };

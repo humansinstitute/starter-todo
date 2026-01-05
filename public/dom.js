@@ -23,6 +23,32 @@ export const elements = {
   qrContainer: document.querySelector("[data-qr-container]"),
   showLoginQrBtn: document.querySelector("[data-show-login-qr]"),
   exportSecretBtn: document.querySelector("[data-export-secret]"),
+  viewProfileBtn: document.querySelector("[data-view-profile]"),
+  // PIN modal elements
+  pinModal: document.querySelector("[data-pin-modal]"),
+  pinCloseBtn: document.querySelector("[data-pin-close]"),
+  pinTitle: document.querySelector("[data-pin-title]"),
+  pinDescription: document.querySelector("[data-pin-description]"),
+  pinDisplay: document.querySelector("[data-pin-display]"),
+  pinDots: document.querySelectorAll("[data-pin-dot]"),
+  pinError: document.querySelector("[data-pin-error]"),
+  pinKeypad: document.querySelector("[data-pin-keypad]"),
+  // Profile modal elements
+  profileModal: document.querySelector("[data-profile-modal]"),
+  profileCloseBtn: document.querySelector("[data-profile-close]"),
+  profileView: document.querySelector("[data-profile-view]"),
+  profileAvatar: document.querySelector("[data-profile-avatar]"),
+  profileName: document.querySelector("[data-profile-name]"),
+  profileNip05: document.querySelector("[data-profile-nip05]"),
+  profileAbout: document.querySelector("[data-profile-about]"),
+  profileNpub: document.querySelector("[data-profile-npub]"),
+  profileEditBtn: document.querySelector("[data-profile-edit-btn]"),
+  profileEditForm: document.querySelector("[data-profile-edit-form]"),
+  profileEditName: document.querySelector("[data-profile-edit-name]"),
+  profileEditAbout: document.querySelector("[data-profile-edit-about]"),
+  profileEditPicture: document.querySelector("[data-profile-edit-picture]"),
+  profileEditStatus: document.querySelector("[data-profile-edit-status]"),
+  profileEditCancel: document.querySelector("[data-profile-edit-cancel]"),
 };
 
 export const show = (el) => el?.removeAttribute("hidden");
